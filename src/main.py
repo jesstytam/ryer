@@ -35,7 +35,7 @@ class Window(QMainWindow):
         self.setCentralWidget(self.splitter)
 
         #csv widget
-        self.csv_widget = QTableWidget()
+        self.csv_widget = HorizontalScrollTable()
         self.csv_widget.setHorizontalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAsNeeded
         )
@@ -45,8 +45,7 @@ class Window(QMainWindow):
         #pdf widget
         self.pdf_widget = QWidget()
         self.pdf_layout = QVBoxLayout(self.pdf_widget)
-
-        self.webView = QWebEngineView()
+        self.current_pdf_path = None
 
         self.webView = QWebEngineView()
 
@@ -70,9 +69,6 @@ class Window(QMainWindow):
         #add menu items
         load_action = file_menu.addAction("Load CSV")
         load_action.triggered.connect(self.load_csv)
-        self.pdf_folder = ""
-        pdf_action = file_menu.addAction('Set PDF folder')
-        pdf_action.triggered.connect(self.set_pdf_folder)
         # export_action = file_menu.addAction("Export CSV")
         # export_action.triggered.connect(self.?)
 
@@ -106,13 +102,6 @@ class Window(QMainWindow):
                 item = QTableWidgetItem(value)
                 self.csv_widget.setItem(row_index, column_index, item)
 
-    def set_pdf_folder(self):
-
-        folder = QFileDialog.getExistingDirectory(self, "Set PDF folder")
-        if folder:
-            self.pdf_folder = folder
-            print("PDF folder:", self.pdf_folder)
-
     def show_selected_pdf(self):
 
         row = self.csv_widget.currentRow()
@@ -120,43 +109,59 @@ class Window(QMainWindow):
             return
 
         headers = {
-            self.csv_widget.horizontalHeaderItem(col).text(): col
+            self.csv_widget.horizontalHeaderItem(col).text().strip(): col
             for col in range(self.csv_widget.columnCount())
+            if self.csv_widget.horizontalHeaderItem(col) is not None
         }
 
-        filename_col = headers.get("file_name")
+        # Add the new code here
+        pdf_path_col = headers.get("pdf_path")
         location_col = headers.get("data_location")
 
-        if filename_col is None or location_col is None:
-            print("CSV needs file_name and data_location columns")
+        if pdf_path_col is None or location_col is None:
+            print("CSV needs pdf_path and data_location columns")
             return
 
-        filename_item = self.csv_widget.item(row, filename_col)
+        pdf_item = self.csv_widget.item(row, pdf_path_col)
         location_item = self.csv_widget.item(row, location_col)
 
-        if not filename_item or not location_item:
+        if not pdf_item or not location_item:
             return
 
-        filename = filename_item.text().strip()
-
-        if not filename.lower().endswith(".pdf"):
-            filename += ".pdf"
-
-        pdf_path = os.path.join(self.pdf_folder, filename)
-        print("Looking for:", pdf_path)
+        pdf_path = os.path.expanduser(pdf_item.text().strip())
+        print("Looking for:", repr(pdf_path))
 
         if not os.path.isfile(pdf_path):
-            print("PDF not found:", pdf_path)
+            print("PDF not found:", repr(pdf_path))
             return
 
-        self.search_after_load = location_item.text().strip()
-        self.webView.setUrl(QUrl.fromLocalFile(pdf_path))
+        search_text = location_item.text().strip()
 
+        if pdf_path != self.current_pdf_path:
+            self.current_pdf_path = pdf_path
+            self.search_after_load = search_text
+            print("Loading PDF:", pdf_path)
+            print("URL:", QUrl.fromLocalFile(pdf_path).toString())
+            self.webView.setUrl(QUrl.fromLocalFile(pdf_path))
+        elif search_text:
+            self.webView.findText(search_text)
 
     def search_loaded_pdf(self, ok):
         print("PDF page load:", ok)
         if ok and self.search_after_load:
             self.webView.findText(self.search_after_load)
+
+class HorizontalScrollTable(QTableWidget):
+    def wheelEvent(self, event):
+        if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            bar = self.horizontalScrollBar()
+            bar.setValue(
+                bar.value() - event.angleDelta().y()
+            )
+            event.accept()
+            return
+
+        super().wheelEvent(event)
 
 #run
 
